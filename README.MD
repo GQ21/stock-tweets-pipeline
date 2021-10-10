@@ -45,7 +45,7 @@ Here are a few simple quality checks that EMR performs before warehouse ingestio
 
 ## NLP Model 
 
-For tweets sentiment predictions it was used very basic logistic regression [model](https://github.com/GQ21/stock-tweets-pipeline/blob/main/emr/model/jupyter/simple_model.ipynb) with TF–IDF vectorizer. Model was trained on kaggle's found
+For tweets sentiment predictions it was used very basic logistic regression [model](https://github.com/GQ21/stock-tweets-pipeline/blob/main/emr/jobs/inference/model/simple_model.ipynb) with TF–IDF vectorizer. Model was trained on kaggle's found
 [data](https://www.kaggle.com/utkarshxy/stock-markettweets-lexicon-data).
 
 ## Data Model
