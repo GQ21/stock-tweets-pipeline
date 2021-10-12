@@ -6,15 +6,8 @@ from airflow.contrib.operators.emr_terminate_job_flow_operator import EmrTermina
 from datetime import datetime
 from airflow.utils.dates import days_ago
 
-jobs_bucket = "stwit-jobs"
-s3_script_convert = "stwitter_convert_to_csv.py"
-s3_script_process = "stwitter_process.py"
-s3_script_inference = "stwitter_inference.py"
-s3_script_quality = "stwitter_quality_check.py"
-s3_script_ingest_staging = "stwitter_ingest_staging.py"
-s3_script_ingest_analytic = "stwitter_ingest_analytic.py"
-s3_emr_libraries = "EMR-install-libraries.sh"
-s3_logs_path = "s3://aws-logs-356383675845-eu-north-1/elasticmapreduce/"
+s3_emr_path = "s3://stwit-jobs/emr/"
+
 
 JOB_FLOW_OVERRIDES = {
     "Name": "Stwitter Cluster",
@@ -53,8 +46,8 @@ JOB_FLOW_OVERRIDES = {
     },
     "JobFlowRole": "EMR_EC2_DefaultRole",
     "ServiceRole": "EMR_DefaultRole",
-    "BootstrapActions":[{'Name': 'Install libraries','ScriptBootstrapAction': {'Path': f's3://{jobs_bucket}/{s3_emr_libraries}'}}],
-    "LogUri": s3_logs_path,
+    "BootstrapActions":[{'Name': 'Install libraries','ScriptBootstrapAction': {'Path': 's3://stwit-jobs/EMR-install-libraries.sh'}}],
+    "LogUri": "s3://aws-logs-356383675845-eu-north-1/elasticmapreduce/",
 }
 
 
@@ -66,12 +59,16 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_convert}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_convert.py"               
             ],
         },
-    },    
+    },
     {
         "Name": "Process data",
         "ActionOnFailure": "TERMINATE_CLUSTER",
@@ -79,12 +76,16 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_process}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_process.py"               
             ],
         },
-    },  
+    },
     {
         "Name": "Predict sentiments",
         "ActionOnFailure": "TERMINATE_CLUSTER",
@@ -92,9 +93,13 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_inference}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_infer.py"               
             ],
         },
     },
@@ -105,9 +110,13 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_quality}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_quality.py"               
             ],
         },
     },
@@ -118,9 +127,13 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_ingest_staging}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_stage.py"               
             ],
         },
     },
@@ -131,26 +144,29 @@ SPARK_STEPS = [
             "Jar": "command-runner.jar",
             "Args": [
                 "spark-submit",
+                "--master",
+                "yarn",
                 "--deploy-mode",
-                "client",
-                "s3://{{params.jobs_bucket}}/{{params.s3_script_ingest_analytic}}",
+                "cluster",
+                "--py-files",
+                "{{params.s3_emr_path}}stwitter_emr.zip",
+                "{{params.s3_emr_path}}stwitter_analytic.py"               
             ],
         },
-    }
+    }       
 ]
 
 default_args = {
-    "owner": "airflow", 
+    "owner": "airflow",   
     'start_date': datetime(year=2021, month=9, day=27)
-    #'start_date': days_ago(1)
 }
 
 dag = DAG(
-    "stwitter_dag",
+    "module_test_dag",
     default_args=default_args,
-    description='Get twitter json files from s3 landing bucket, process it and import into data warehouse',  
+    description='Get twitter json files from s3 landing bucket, process it and import into data warehouse', 
     schedule_interval='00 03 * * *',
-    max_active_runs = 1
+    max_active_runs = 1 
 )
 
 create_emr_cluster = EmrCreateJobFlowOperator(
@@ -165,16 +181,8 @@ step_adder = EmrAddStepsOperator(
     task_id="add_steps",
     job_flow_id="{{ task_instance.xcom_pull(task_ids='create_emr_cluster', key='return_value') }}",
     aws_conn_id="aws_default",
-    steps=SPARK_STEPS,
-    params={
-        "jobs_bucket": jobs_bucket,    
-        "s3_script_convert" : s3_script_convert,
-        "s3_script_process" : s3_script_process,
-        "s3_script_inference" : s3_script_inference,
-        "s3_script_quality" : s3_script_quality,
-        "s3_script_ingest_staging" : s3_script_ingest_staging,
-        "s3_script_ingest_analytic" : s3_script_ingest_analytic,
-    },
+    steps=SPARK_STEPS, 
+    params={"s3_emr_path": s3_emr_path},  
     dag=dag,
 )
 
